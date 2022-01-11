@@ -103,7 +103,7 @@ p()
             echo -e "$GREEN[+]$RESET $TOOL"
         fi
         #PROGRESS=`expr $PROGRESS + 1;`
-        #ans=$( bc <<<"100*$PROGRESS/176" )
+        #ans=$( bc <<<"100*$PROGRESS/177" )
         #draw_progress_bar $ans
     fi
 }

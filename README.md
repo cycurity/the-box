@@ -40,10 +40,10 @@ Disclaimer: Some downloads and/or installations might fail. You need to ensure t
 Terminal execution:
 
 ```bash
-$ git clone https://github.com/cycurity/toolkit.git
-$ cd toolkit
-$ chmod +x install.sh
-$ ./install.sh -h
+$ git clone https://github.com/cycurity/the-box.git
+$ cd the-box
+$ chmod +x install
+$ ./install -h
 ```
 
 ## CREDITS
