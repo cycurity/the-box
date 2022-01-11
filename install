@@ -1,0 +1,970 @@
+#!/bin/bash
+
+#
+# System requirements:
+# - AMD64
+# - Debian based
+# - x64 architecture
+# - Internet Connection
+#
+# Total tools: 177
+# GUI tools: 25
+# Minimal tools: 72
+# Size: XGB
+#
+# Made by Cycurity
+#
+
+## Variables
+WORDLISTS="/usr/share/wordlists"
+GUI=true
+MINIMAL=false
+QUIET=false
+REBOOT=false
+VERSION="0.1"
+TOOLS=177
+GUITOOLS=25
+NOMINIMALTOOLS=105
+GUINOMINIMALTOOLS=19
+#PROGRESS=0
+
+## Colours
+CYAN="\\033[1;36m"
+YELLOW="\\033[1;33m"
+RED="\\033[1;31m"
+GREEN="\\033[1;32m"
+BLUE="\\033[1;34m"
+PINK="\\033[1;35m"
+WHITE="\\033[1;37m"
+GRAY="\\033[1;30m"
+RESET="\\033[0m"
+
+
+# Check for any given parameters
+for arg in "$@"; do
+    case $1 in
+        -ng| --no-gui)
+            shift
+            GUI=false
+        ;;
+        -m| --minimal)
+            shift
+            MINIMAL=true
+        ;;
+        -h| --help)
+            echo -e "
+Commands:
+    -h  --help                  Displays this help menu
+    -v  --version               Displays current version
+    -q  --quiet                 Don't display the name of the tools while installing
+    -ng --no-gui                Only installs tools with no GUI required
+    -m  --minimal               Only installs the most common tools for each category"
+            echo
+            exit
+        ;;
+        -v| --version)
+            echo "Version" $VERSION
+            echo
+            exit
+        ;;
+        -q| --quiet)
+            QUIET=true
+        ;;
+    esac
+done
+
+## Source for Progress Bar
+#source ./progress_bar.sh
+
+## Checks if a URL returns a valid status code (if the website exists)
+valid()
+{
+    URL=$1
+
+    if curl --output /dev/null --silent --head --fail "$URL"; then
+        return 1
+    else
+        return 0
+    fi
+}
+
+## Print the name of the tool
+p()
+{
+    if [ $QUIET == false ]; then
+        TOOL=$1
+        ERROR=$2
+        WARNING=$3
+        if [ $WARNING ]; then
+            echo -e "$YELLOW[*]$RESET $TOOL"
+        elif [ $ERROR ]; then
+            echo -e "$RED[!]$RESET $TOOL"
+        else
+            echo -e "$GREEN[+]$RESET $TOOL"
+        fi
+        #PROGRESS=`expr $PROGRESS + 1;`
+        #ans=$( bc <<<"100*$PROGRESS/176" )
+        #draw_progress_bar $ans
+    fi
+}
+
+## Automatically checks if the package or link is up or down, before attempting to install
+download()
+{
+    NAME=$1
+    METHOD=$2
+    PACKAGE=$3
+
+    if [ ! $PACKAGE ]; then
+        PACKAGE=$NAME
+    fi
+
+    if [[ "$METHOD" == "apt" && "$(apt info $PACKAGE 2>tmp && grep "No packages found" tmp)" != "" ]]; then
+        rm tmp
+        p "$NAME"
+        apt-get -qq install -y $PACKAGE >> $DIR/.install.log 2>>$DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "snap" ]]; then
+        p "$NAME"
+        snap install $PACKAGE >> $DIR/.install.log 2>>$DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "pip" ]]; then
+        p "$NAME"
+        pip install -q $PACKAGE >> $DIR/.install.log 2>>$DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "pip3" ]]; then
+        p "$NAME"
+        python3 -m pip install -q $PACKAGE >> $DIR/.install.log 2>>$DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "wget" ]]; then
+        if curl --output /dev/null --silent --head --fail "$PACKAGE"; then
+            p "$NAME"
+            wget -q $PACKAGE
+            return 0
+        else
+            p "$NAME" e
+            return 1
+        fi
+    elif [[ "$METHOD" == "docker" ]]; then
+        p "$NAME"
+        docker pull -q $PACKAGE >> $DIR/.install.log 2>> $DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "git" ]]; then
+        res=$(wget --spider -S "$PACKAGE" 2>tmp && grep ^.*HTTP.*200.*\$ tmp | awk '{print $2}')
+        if [[ "$res" == "200" ]]; then
+            p "$NAME";
+            git clone -q $PACKAGE
+            rm tmp
+            return 0
+        else
+            p "$NAME" e
+            return 1
+        fi
+    elif [[ "$METHOD" == "npm" && "$(npm s $PACKAGE | grep "^$PACKAGE[\ ].*\$")" != "" ]]; then
+        p "$NAME"
+        npm install $PACKAGE >> $DIR/.install.log 2>>$DIR/.error.log
+        return 0
+    elif [[ "$METHOD" == "gem" && "$(gem list -r ^$PACKAGE\$ | grep $PACKAGE)" != "" ]]; then
+        p "$NAME"
+        gem install --quiet --silent $PACKAGE 2>>$DIR/.error.log
+        return 0
+    else
+        p "$NAME" e
+        return 1
+    fi
+}
+
+## (Y/N)
+prompt()
+{
+    MESSAGE=$1
+    while [ true ]
+    do
+        echo -e -n "$CYAN$MESSAGE (y/n): $RESET"
+        read ans
+        if [ "y" == $ans -o "Y" == $ans ]
+        then
+            return 1
+        elif [ "n" == $ans -o "N" == $ans ]
+        then
+            return 0
+        fi
+    done
+}
+
+## Welcome
+clear
+echo -e "$BLUE\r          ______ __             ____              
+         /_  __// /_   ___     / __ ) ____   _  __
+          / /  / __ \ / _ \   / __  |/ __ \ | |/_/
+         / /  / / / //  __/  / /_/ // /_/ /_>  <  
+        /_/  /_/ /_/ \___/  /_____/ \____//_/|_|  
+                                                  "
+echo -e "\e[3m                                                  by Cycurity\e[0m"
+echo
+echo -e "$CYAN\rWelcome!$RESET"
+echo ""
+
+# Check if user has privileges
+if [ $(whoami) != "root" ]; then
+    echo -e "$RED\rPlease run this script as root or using sudo!$RESET"
+    exit
+fi
+
+# Check if user has internet connection
+if ! nc -zw1 google.com 443 >/dev/null 2>/dev/null; then
+    echo -e "$RED\rNo connection. Please ensure that you have internet connection!$RESET"
+    exit
+fi
+
+## Set installation folder
+echo -e -n "$CYAN\rInstallation Folder:$RESET "
+read DIR
+echo ""
+while [ ! -d "$DIR" ]
+do
+    echo -e "$RED\rThe selected folder does not exist"
+    echo ""
+    echo -e -n "$CYAN\rInstallation Folder:$RESET "
+    read DIR
+    echo
+done
+
+cd $DIR
+DIR=$(pwd)
+
+if [ ! -d "/home/$SUDO_USER/.local/bin" ]; then
+    mkdir -p /home/$SUDO_USER/.local/bin
+fi
+
+
+## Verify if apt or python-upgrade are running before the script
+if pgrep -x "apt" >> $DIR/.install.log 2>>$DIR/.error.log
+then
+    echo -e "$YELLOW\rCannot proceed: apt is running!"
+    prompt "Kill the process?"
+    if [ $? == 1 ]; then
+        pkill -9 -x "apt"
+        echo "$CYAN\rProcess killed.$RESET"
+        echo
+    else
+        echo -e "$RED\rExiting...$RESET"
+        exit
+    fi
+fi
+lines=`ps aux | grep -i "unattended-upgrade" | wc -l`
+if [ $lines -gt 1 ]
+then
+    echo -e "$YELLOW\rCannot proceed: python unattended-upgrade is running!"
+    prompt "Kill the process?"
+    if [ $? == 1 ]; then
+        pids=($(ps aux | grep -i "unattended-upgrade" | awk '{print $2}'))
+        i="`expr $lines - 1`"
+        j="0"
+        while [[ $j -lt $i ]]
+        do
+            kill -9 ${pids[$j]}
+            j=$j+1
+        done
+        echo -e "$CYAN\rProcess killed.$RESET"
+        echo
+    else
+        echo -e "$RED\rExiting...$RESET"
+        exit
+    fi
+fi
+
+## Verify if there is a GUI
+touch tmp
+touch tmp2
+session=`ls /usr/bin/*session | grep -i 'gnome\ |\ xfce\ |\ mate\ |\ cinnamon '`
+ls /usr/share/xsessions/ >tmp 2>>$DIR/.error.log
+type Xorg >tmp2 2>>$DIR/.error.log
+xsessions="`grep '/usr/share/xsessions' tmp`"
+xorg="`grep 'type' tmp2`"
+rm tmp
+rm tmp2
+if [ "$session" == "" ]; then
+    if [ ! "$xsessions" == "" ]; then
+        if [ ! "$xorg" == "" ]; then
+            echo -e "$YELLOW\rGUI not found$RESET" 
+            prompt "Do you want to proceed with no GUI mode?"
+            if [ $? == 1 ]; then
+                GUI=false
+            fi
+        fi
+    fi
+fi
+
+## Pre-Info
+if [ $MINIMAL == true ]; then
+    echo -e "$CYAN\rInstalling minimal tools.$RESET"
+    TOOLS=`expr $TOOLS - $NOMINIMALTOOLS`
+
+fi
+if [ $GUI == false ]; then
+    echo -e "$CYAN\rSkipping GUI tools.$RESET"
+    TOOLS=`expr $TOOLS - $GUITOOLS`
+fi
+if [ $MINIMAL == true -o $GUI == false ]; then
+    echo
+fi
+if [ $MINIMAL == true -a $GUI == false ]; then
+    TOOLS=`expr $TOOLS + $GUINOMINIMALTOOLS`
+fi
+
+## Fixing Linux Mint snapd installation
+if [ grep -i Mint "/etc/*-release" >> $DIR/.install.log 2>>$DIR/.error.log ]; then
+    rm /etc/apt/preferences.d/nosnap.pref
+fi
+
+echo -e "$CYAN\r$TOOLS tools will be installed."
+echo
+
+## Update system
+echo -e "$CYAN\rUpdating system..."
+apt-get -qq update >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq upgrade -y >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq dist-upgrade -y >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq autoremove -y >> $DIR/.install.log 2>>$DIR/.error.log
+
+##Installing pre-requisites
+echo -e "$CYAN\rInstalling pre-requisites..."
+apt-get -qq purge -y apport >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq autoremove -y popularity-contest >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y git >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y net-tools >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y curl >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y build-essential >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y systemd >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libpam-systemd >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y make >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y cmake >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y snapd >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y vim >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y dkms >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y gcc >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libcurl4 >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y default-jre >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y sqlite3 >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libcurl4-openssl-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libssl-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y perl >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y ruby-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y g++ >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libboost-all-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y qtbase5-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python3 >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python3-pip >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libssl1.1 >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y ruby >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y p7zip-full >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y p7zip-rar >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libxml2-utils >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libpcap >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libnet >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y nodejs >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y pipenv >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y dh-autoreconf >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y dos2unix >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python-dev python-setuptools libpcap0.8-dev libnetfilter-queue-dev libjpeg-dev libxml2-dev libxslt1-dev libcapstone3 libcapstone-dev libffi-dev file >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y ldap-utils rwho rsh-client x11-apps finger >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python3-sqlalchemy python3-pyqt5 wkhtmltopdf >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python-tk tk-dev libffi-dev pandoc libgmp3-dev libzbar-dev tesseract-ocr xsel libpoppler-cpp-dev libmpc-dev libdbus-glib-1-dev libenchant-dev apktool groff tcpflow poppler-utils stegsnow bison libgd-dev less >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python3-m2crypto >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python3-venv >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libxml2 libxml2-dev libxslt1-dev libgmp-dev zlib1g-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y python-dnspython >> $DIR/.install.log 2>>$DIR/.error.log
+snap install --classic go >> $DIR/.install.log 2>>$DIR/.error.log
+export PATH="/home/$SUDO_USER/.local/bin:$PATH"
+export PYTHONWARNINGS="ignore"
+python3 -m pip install -q yara-python >> $DIR/.install.log 2>>$DIR/.error.log
+python3 -m pip install -q capstone >> $DIR/.install.log 2>>$DIR/.error.log
+python3 -m pip install -q pefile >> $DIR/.install.log 2>>$DIR/.error.log
+python3 -m pip install -q setuptools >> $DIR/.install.log 2>>$DIR/.error.log
+wget -q https://bootstrap.pypa.io/pip/2.7/get-pip.py -O get-pip.py
+python2 get-pip.py >> $DIR/.install.log 2>>$DIR/.error.log
+rm get-pip.py
+#w3af
+apt-get -qq install -y graphviz >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y npm >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y libxslt-dev lib32ncurses5-dev >> $DIR/.install.log 2>>$DIR/.error.log
+#golismero
+apt-get -qq install -y python2.7 python2.7-dev python-docutils >> $DIR/.install.log 2>>$DIR/.error.log
+#bettercap
+apt-get -qq install -y libnetfilter-queue-dev libnetfilter-queue1 >> $DIR/.install.log 2>>$DIR/.error.log
+/sbin/ldconfig -v >> $DIR/.install.log 2>>$DIR/.error.log
+#jd-gui
+apt-get -qq install -y libcanberra-gtk-module libcanberra-gtk3-module >> $DIR/.install.log 2>>$DIR/.error.log
+#angry ip scanner
+apt-get -qq install -y openjdk-11-jdk rpm fakeroot wine-stable >> $DIR/.install.log 2>>$DIR/.error.log
+#catphish
+apt-get -qq install -y ruby-bundler >> $DIR/.install.log 2>>$DIR/.error.log
+#wifiphisher
+apt-get -qq install -y libnl-3-dev libnl-genl-3-dev >> $DIR/.install.log 2>>$DIR/.error.log
+#john the ripper (jumbo)
+apt-get -qq install -y yasm pkg-config libpcap-dev libbz2-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y nvidia-opencl-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y ocl-icd-opencl-dev opencl-headers fglrx-dev >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq install -y pocl-opencl-icd >> $DIR/.install.log 2>>$DIR/.error.log
+
+##Inititate progress bar
+#if [ $QUIET == false ]; then
+#    enable_trapping
+#    setup_scroll_area
+#fi
+
+## MISC
+echo ""
+echo -e "$CYAN\rInstalling Miscellaneous tools..."
+mkdir $DIR/Misc
+cd $DIR/Misc
+
+if [ $GUI ]; then
+    p "Sublime Text 3" a b
+    wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | apt-key add - >> $DIR/.install.log 2>>$DIR/.error.log
+    apt-get -qq install apt-transport-https -y >> $DIR/.install.log 2>>$DIR/.error.log
+    echo -e "deb https://download.sublimetext.com/ apt/stable/" | tee /etc/apt/sources.list.d/sublime-text.list >> $DIR/.install.log 2>>$DIR/.error.log
+    apt-get -qq update >> $DIR/.install.log 2>>$DIR/.error.log
+    apt-get -qq install -y sublime-text >> $DIR/.install.log 2>>$DIR/.error.log
+    mv /opt/sublime_text $DIR/Misc >> $DIR/.install.log 2>>$DIR/.error.log
+    rm /usr/bin/subl >> $DIR/.install.log 2>>$DIR/.error.log
+    ln -s $DIR/Misc/sublime_text/sublime_text /usr/bin/subl >> $DIR/.install.log 2>>$DIR/.error.log
+
+    download "xfreerdp" apt xfreerdp 
+    download "Remmina" apt remmina && apt-get -qq install -y remmina-common >> $DIR/.install.log 2>>$DIR/.error.log
+fi
+
+download "Apache2" apt apache2
+download "Lynx" apt lynx
+download "SMB Client" apt smbclient
+download "Telnet" apt telnet && apt-get -qq install -y telnetd inetutils-telnetd inetutils-telnet >> $DIR/.install.log 2>>$DIR/.error.log
+download "SSH & SFTP" apt ssh && apt-get -qq install -y openssh-client openssh-sftp-server openssh-server >> $DIR/.install.log 2>>$DIR/.error.log
+download "Docker" apt docker && apt-get -qq install -y docker-compose docker.io >> $DIR/.install.log 2>>$DIR/.error.log
+
+if [ $MINIMAL == false ]; then
+
+    download "webshells" git https://github.com/BlackArch/webshells
+
+    if [ $GUI ]; then
+        p "Visual Studio Code"
+        snap install --classic code >> $DIR/.install.log 2>>$DIR/.error.log
+
+        download "Guake Terminal" apt guake
+
+        p "Tor Browser" a b
+        echo | add-apt-repository ppa:micahflee/ppa >> $DIR/.install.log 2>>$DIR/.error.log
+        apt-get -qq update >> $DIR/.install.log 2>>$DIR/.error.log
+        apt-get -qq install -y torbrowser-launcher >> $DIR/.install.log 2>>$DIR/.error.log
+
+        download "VNC Viewer" apt vncviewer && apt-get -qq install -y tigervnc-viewer >> $DIR/.install.log 2>>$DIR/.error.log
+        download "freerdp-x11" apt freerdp-x11 && apt-get -qq install -y freerdp2-x11 >> $DIR/.install.log 2>>$DIR/.error.log
+    fi
+    
+    download "Bulk Downloader for Reddit" git https://github.com/aliparlakci/bulk-downloader-for-reddit && cd bulk-downloader-for-reddit && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Misc
+    download "ffmpeg" apt ffmpeg
+    download "CAN utils" apt "can-utils"
+    download "ngrok" wget "https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip" && unzip -qq "ngrok-stable-linux-amd64.zip" >> $DIR/.install.log; rm "ngrok-stable-linux-amd64.zip" && ln -s $DIR/Misc/ngrok /usr/bin/ngrok
+    download "youtube_dl" pip3 youtube_dl
+    download "WlCreator" git https://github.com/Keshav2136/wlcreator; cd wlcreator; gcc -o wlcreator wlcreator.c >> $DIR/.install.log 2>>$DIR/.error.log; ln -s $DIR/Misc/wlcreator /usr/bin/wlcreator; cd $DIR/Misc
+    download "Crunch" apt crunch
+    download "Cewl" apt cewl
+    download "GoClone" git https://github.com/imthaghost/goclone; cd goclone/cmd/goclone; go install >> $DIR/.install.log 2>>$DIR/.error.log; cd $DIR/Misc
+    download "Firefox Decrypt" git https://github.com/unode/firefox_decrypt
+    download "MDB Tools" apt mdbtools
+    download "BPython" pip3 bpython
+fi
+
+
+
+## Social Engineering
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Social Engineering tools..."
+mkdir $DIR/Social\ Engineering
+cd $DIR/Social\ Engineering
+
+download "NexPhisher" git https://github.com/htr-tech/nexphisher && cd nexphisher && ./setup >> $DIR/.install.log 2>>$DIR/.error.log; ln -s $DIR/Social\ Engineering/nexphisher/nexphisher /usr/bin/nexphisher; cd $DIR/Social\ Engineering
+download "The Social-Engineer Toolkit (SET)" git https://github.com/trustedsec/social-engineer-toolkit && mv social-engineer-toolkit setoolkit && cd setoolkit && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && python3 setup.py >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Social\ Engineering
+download "CATPHISH" git https://github.com/ring0lab/catphish && cd catphish && bundle install >> $DIR/.install.log 2>>$DIR/.error.log; ln -s $DIR/Social\ Engineering/catphish/catphish.rb /usr/bin/catphish; cd $DIR/Social\ Engineering
+download "wifiphisher" git https://github.com/wifiphisher/wifiphisher && cd wifiphisher && python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && chmod +x $DIR/Social\ Engineering/wifiphisher/wifiphisher/pywifiphisher.py && ln -s $DIR/Social\ Engineering/wifiphisher/wifiphisher/pywifiphisher.py /usr/bin/wifiphisher && cd $DIR/Social\ Engineering
+download "roguehostapd" git https://github.com/wifiphisher/roguehostapd && cd roguehostapd && python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Social\ Engineering
+
+if [ $MINIMAL == false ]; then
+    download "Zphisher" git https://github.com/htr-tech/zphisher && ln -s $DIR/Social\ Engineering/zphisher/zphisher.sh /usr/bin/zphisher
+    download "Seeker" git https://github.com/thewhiteh4t/seeker && python3 -m pip install -q requests >> $DIR/.install.log 2>>$DIR/.error.log
+    download "King Phisher" wget https://github.com/securestate/king-phisher/raw/master/tools/install.sh && chmod +x install.sh && echo 1 | ./install.sh -y >> $DIR/.install.log 2>>$DIR/.error.log; rm install.sh && mv /opt/king-phisher $DIR/Social\ Engineering
+fi
+
+if [ $GUI ]; then
+    download "Gophish" wget https://github.com/gophish/gophish/releases/download/v0.11.0/gophish-v0.11.0-linux-64bit.zip && mv gophish-v0.11.0-linux-64bit.zip gophish.zip && mkdir gophish && mv gophish.zip gophish && cd gophish && unzip -qq gophish.zip >> $DIR/.install.log && rm gophish.zip && chmod +x gophish && ln -s $DIR/Misc/gophish/gophish /usr/bin/gophish && cd $DIR/Misc
+fi
+
+
+
+## Enumeration
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Enumeration tools..."
+mkdir $DIR/Enumeration
+cd $DIR/Enumeration
+
+### Fuzzers
+mkdir $DIR/Enumeration/Fuzzers
+cd $DIR/Enumeration/Fuzzers
+
+download "wfuzz" pip3 wfuzz
+download "GoBuster" wget https://github.com/OJ/gobuster/releases/download/v3.1.0/gobuster-linux-amd64.7z && 7z x "gobuster-linux-amd64.7z" >> $DIR/.install.log 2>>$DIR/.error.log; rm "gobuster-linux-amd64.7z" && cd "gobuster-linux-amd64" && chmod +x gobuster && mv gobuster /usr/bin/gobuster && cd ..; rm -rf "gobuster-linux-amd64" && cd $DIR/Enumeration/Fuzzers
+download "Dirb" apt dirb
+
+p "SubFinder" a e
+GO111MODULE=on go get -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder >> $DIR/.install.log 2>>$DIR/.error.log
+
+if [ $MINIMAL == false ]; then
+    download "ffuf" wget https://github.com/ffuf/ffuf/releases/download/v1.3.0/ffuf_1.3.0_linux_amd64.tar.gz && mkdir ffuf && mv ffuf_1.3.0_linux_amd64.tar.gz ffuf && cd ffuf && gunzip -d ffuf_1.3.0_linux_amd64.tar.gz && 7z x ffuf_1.3.0_linux_amd64.tar >> $DIR/.install.log 2>>$DIR/.error.log; rm ffuf_1.3.0_linux_amd64.tar && chmod +x ffuf && ln -s $DIR/Enumeration/Fuzzers/ffuf/ffuf /usr/bin/ffuf && cd $DIR/Enumeration/Fuzzers
+    download "MassDNS" git https://github.com/blechschmidt/massdns
+    download "SubBrute" git https://github.com/TheRook/subbrute
+    download "Async DNS Brute" pip3 aiodnsbrute
+    download "OneForAll" git https://github.com/shmilylty/OneForAll && python3 -m pip install -q testresources >> $DIR/.install.log 2>>$DIR/.error.log && cd OneForAll && python3 -m pip install -U pip setuptools wheel -i https://mirrors.aliyun.com/pypi/simple/ >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Enumeration/Fuzzers
+    
+    if [ $GUI ]; then
+        download "Dirbuster" git https://gitlab.com/kalilinux/packages/dirbuster && cd dirbuster; rm DirBuster-1.0-RC1.sh && echo -e "#!/bin/bash" >DirBuster-1.0-RC1.sh && echo -e "java -Xmx256M -jar $(pwd)/DirBuster-1.0-RC1.jar" >DirBuster-1.0-RC1.sh && chmod +x $DIR/Enumeration/Fuzzers/dirbuster/DirBuster-1.0-RC1.sh && ln -s $DIR/Enumeration/Fuzzers/dirbuster/DirBuster-1.0-RC1.sh /usr/bin/dirbuster && cd $DIR/Enumeration/Fuzzers
+    fi
+fi
+
+### Scanners
+mkdir $DIR/Enumeration/Scanners
+cd $DIR/Enumeration/Scanners
+
+download "enum4linux" git https://github.com/CiscoCXSecurity/enum4linux && mv $DIR/Enumeration/Scanners/enum4linux/enum4linux.pl $DIR/Enumeration/Scanners && ln -s $DIR/Enumeration/Scanners/enum4linux.pl /usr/bin/enum4linux && rm -r $DIR/Enumeration/Scanners/enum4linux >> $DIR/.install.log 2>>$DIR/.error.log; cd $DIR/Enumeration/Scanners
+download "SMBMap" apt smbmap
+download "SQLMap" apt sqlmap
+download "WPScan" gem wpscan
+download "NBTScan" apt nbtscan
+download "Nmap" apt nmap
+download "DNSMap" apt dnsmap
+download "Nikto" apt nikto
+
+if [ $MINIMAL == false ]; then
+    download "Rust Scan" wget https://github.com/RustScan/RustScan/releases/download/2.0.1/rustscan_2.0.1_amd64.deb && dpkg -i rustscan_2.0.1_amd64.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm rustscan_2.0.1_amd64.deb
+    download "Fierce" git https://gitlab.com/kalilinux/packages/fierce && ln -s $DIR/Enumeration/Scanners/fierce/fierce.pl /usr/bin/fierce
+    download "AngularJS CSTI Scanner" pip3 https://github.com/tijme/angularjs-csti-scanner/archive/master.zip
+    download "DNSEnum" apt dnsenum
+    download "DNSRecon" git https://github.com/darkoperator/dnsrecon && cd dnsrecon && python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Enumeration/Scanners
+    download "Masscan" git https://github.com/robertdavidgraham/masscan && cd masscan && make >> $DIR/.install.log 2>>$DIR/.error.log && make install >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Enumeration/Scanners
+    download "XanXSS" git https://github.com/Ekultek/XanXSS && cd XanXSS && pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Enumeration/Scanners 
+    download "W3af" git https://github.com/andresriancho/w3af && cd w3af && wget -q http://archive.ubuntu.com/ubuntu/pool/universe/p/pygtk/python-gtk2_2.24.0-5.1ubuntu2_amd64.deb; sudo apt-get install -y ./python-gtk2_2.24.0-5.1ubuntu2_amd64.deb >> $DIR/.install.log 2>>$DIR/.error.log; npm install -g retire@2.0.3 >> $DIR/.install.log 2>>$DIR/.error.log; npm update -g retire >> $DIR/.install.log 2>>$DIR/.error.log; pip install -q pygtk >> $DIR/.install.log 2>>$DIR/.error.log && pip install -q pyClamd==0.4.0 PyGithub==1.21.0 GitPython==2.1.15 pybloomfiltermmap==0.3.14 phply==0.9.1 nltk==3.0.1 chardet==3.0.4 tblib==0.2.0 pdfminer==20140328 futures==3.2.0 pyOpenSSL==18.0.0 ndg-httpsclient==0.4.0 pyasn1==0.4.2 lxml==3.4.4 scapy==2.4.0 guess-language==0.2 cluster==1.1.1b3 msgpack==0.5.6 python-ntlm==1.0.1 halberd==0.2.4 darts.util.lru==0.5 Jinja2==2.10 vulndb==0.1.1 markdown==2.6.1 psutil==5.4.8 ds-store==1.1.2 termcolor==1.1.0 mitmproxy==0.13 ruamel.ordereddict==0.4.8 Flask==0.10.1 PyYAML==3.12 tldextract==1.7.2 pebble==4.3.8 acora==2.1 esmre==0.3.1 diff-match-patch==20121119 bravado-core==5.15.0 lz4==1.1.0 vulners==1.3.0 ipaddresses==0.0.2 subprocess32==3.5.4 xdot==0.6 >> $DIR/.install.log 2>>$DIR/.error.log; ln -s $DIR/Enumeration/Scanners/w3af/w3af_console /usr/bin/w3af; cd $DIR/Enumeration/Scanners
+    download "Golismero" git https://github.com/golismero/golismero && cd golismero && wget http://ftp.br.debian.org/debian/pool/main/s/sslscan/sslscan_2.0.7-1_amd64.deb -q -O sslscan.deb && dpkg -i sslscan.deb >> $DIR/.install.log 2>>$DIR/.error.log && pip install -q -r requirements_unix.txt >> $DIR/.install.log 2>>$DIR/.error.log && ln -s ${PWD}/golismero.py /usr/bin/golismero && cd $DIR/Enumeration/Scanners
+    download "Joomscan" git https://github.com/OWASP/joomscan && cd joomscan && dos2unix joomscan.pl >> $DIR/.install.log 2>>$DIR/.error.log && ln -s $DIR/Enumeration/Scanners/joomscan/joomscan.pl /usr/bin/joomscan && cd $DIR/Enumeration/Scanners
+    download "Droopescan" pip3 droopescan
+    
+    if [ $GUI ]; then
+        download "OWASP ZAP" wget https://download.opensuse.org/repositories/home:/cabelo/xUbuntu_21.04/amd64/owasp-zap_2.10.0-1_amd64.deb && apt -qq install -y ./owasp-zap_2.10.0-1_amd64.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm owasp-zap_2.10.0-1_amd64.deb
+        download "BloodHound" wget https://github.com/BloodHoundAD/BloodHound/releases/download/4.0.2/BloodHound-linux-x64.zip && unzip -qq BloodHound*.zip >> $DIR/.install.log; rm BloodHound*.zip && mv BloodHound* BloodHound
+    fi
+fi
+
+
+
+## Exploitation
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Exploitation tools..."
+mkdir $DIR/Exploitation
+cd $DIR/Exploitation
+
+download "Metasploit" wget https://raw.githubusercontent.com/rapid7/metasploit-omnibus/master/config/templates/metasploit-framework-wrappers/msfupdate.erb >> $DIR/.install.log 2>>$DIR/.error.log && mv msfupdate.erb msfinstall && chmod 755 msfinstall && ./msfinstall >> $DIR/.install.log 2>>$DIR/.error.log && ln -s /opt/metasploit-framework /usr/share/metasploit-framework && ln -s /opt/metasploit-framework $DIR/Exploitation; rm msfinstall && cd $DIR/Exploitation
+download "Exploitdb" wget https://http.kali.org/pool/main/e/exploitdb/exploitdb_20210730-0kali1_all.deb && dpkg -i exploitdb_20210730-0kali1_all.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm exploitdb_20210730-0kali1_all.deb && cd $DIR/Exploitation
+
+if [ $GUI ]; then
+    download "Burpsuite" wget "https://portswigger.net/burp/releases/download?product=community&version=2021.5&type=Linux" && mv downloa* burp.sh && chmod +x burp.sh && echo "/usr/bin" | echo | echo "$DIR/Exploitation/BurpSuiteCommunity" | echo | ./burp.sh -c >> $DIR/.install.log 2>>$DIR/.error.log; rm burp.sh
+fi
+
+if [ $MINIMAL == false ]; then
+    if [ $GUI ]; then
+        p "Venom" a b
+
+        download "Bettercap" wget https://github.com/bettercap/bettercap/releases/download/v2.31.0/bettercap_linux_amd64_v2.31.0.zip && unzip -qq bettercap_linux_amd64_v2.31.0.zip && mv bettercap /usr/bin/bettercap; rm *.sha256; rm bettercap_linux_amd64_v2.31.0.zip
+        download "BeEF" git https://github.com/beefproject/beef && echo y | echo y | echo y | beef/install >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Exploitation
+
+        #p "Veil"
+        #git clone -q https://github.com/Veil-Framework/Veil.git
+        #cd Veil/
+        #echo -e "/usr/bin/" | ./config/setup.sh --force --silent >> $DIR/.install.log 2>>$DIR/.error.log
+        #cd $DIR/Exploitation
+    fi
+    
+    download "PRET" git https://github.com/RUB-NDS/PRET && pip install -q colorama pysnmp >> $DIR/.install.log 2>>$DIR/.error.log
+    download "CME: CrackMapExec" git https://github.com/byt3bl33d3r/CrackMapExec && python3 -m pip install -q -r CrackMapExec/requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q pipx >> $DIR/.install.log 2>>$DIR/.error.log && pipx install crackmapexec >> $DIR/.install.log 2>>$DIR/.error.log && mv /root/.local/bin/cme /root/.local/bin/cmedb /root/.local/bin/crackmapexec /home/$SUDO_USER/.local/bin >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Exploitation
+    download "MITMf" git https://github.com/byt3bl33d3r/MITMf && cd MITMf && git submodule init >> $DIR/.install.log 2>>$DIR/.error.log && git submodule update --recursive >> $DIR/.install.log 2>>$DIR/.error.log && pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Exploitation
+    download "SPARTA" git https://github.com/SECFORCE/sparta && ln -s $DIR/Exploitation/sparta /usr/share/sparta && chmod +x sparta/sparta && cp sparta/sparta /usr/bin/sparta && cd $DIR/Exploitation
+    download "RouterSploit" git https://www.github.com/threat9/routersploit && cd routersploit && sudo python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && sudo ln -s rsf.py /usr/bin/rsf && cd $DIR/Exploitation
+    download "Unicorn" git https://github.com/trustedsec/unicorn
+    download "Xerxes (C)" git https://github.com/XCHADXFAQ77X/XERXES && cd XERXES && gcc -o xerxes xerxes.c && ln -s $DIR/Exploitation/XERXES/xerxes /usr/bin/xerxes && cd $DIR/Exploitation
+    download "Xerxes (C++)" git https://github.com/sepehrdaddev/Xerxes && cd Xerxes && mkdir build && git submodule update --init --recursive >> $DIR/.install.log 2>>$DIR/.error.log && cd build && cmake .. >> $DIR/.install.log 2>>$DIR/.error.log && make >> $DIR/.install.log 2>>$DIR/.error.log && ln -s $DIR/Exploitation/Xerxes/build/bin/Xerxes /usr/bin/Xerxes && cd $DIR/Exploitation
+    download "sslstrip2" git https://github.com/byt3bl33d3r/sslstrip2
+fi
+
+
+
+### Post-Exploitation
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Post-Exploitation tools..."
+mkdir "$DIR/Post-Exploitation"
+cd "$DIR/Post-Exploitation"
+
+download "mimikatz" git https://github.com/gentilkiwi/mimikatz
+download "nishang" git https://github.com/samratashok/nishang
+download "PEASS" git https://github.com/carlospolop/privilege-escalation-awesome-scripts-suite
+download "Windows Exploit Suggester" git https://github.com/AonCyberLabs/Windows-Exploit-Suggester
+download "Linux Exploit Suggester" git https://github.com/InteliSecureLabs/Linux_Exploit_Suggester
+download "LinEnum" wget https://raw.githubusercontent.com/rebootuser/LinEnum/master/LinEnum.sh
+download "Linux Smart Enumeration" wget https://raw.githubusercontent.com/diego-treitos/linux-smart-enumeration/master/lse.sh
+       
+if [ $MINIMAL == false ]; then
+    download "Merlin" wget https://github.com/Ne0nd0g/merlin/releases/download/v1.0.0/merlinServer-Linux-x64.7z && mkdir Merlin && mv merlinServer* Merlin && cd Merlin && 7z x -p"merlin" merlinServer-Linux-x64.7z >> $DIR/.install.log 2>>$DIR/.error.log; rm merlinServer-Linux-x64.7z && cd "$DIR/Post-Exploitation"
+    download "SSH-Backdoor" git https://github.com/NinjaJc01/ssh-backdoor
+    download "Weevely" apt weevely
+    download "Keylogger" git https://github.com/aydinnyunus/Keylogger
+    download "Postenum" git https://github.com/mostaphabahadou/postenum
+    download "LES: Linux Privilege Escalation Auditing Tool" wget https://raw.githubusercontent.com/mzet-/linux-exploit-suggester/master/linux-exploit-suggester.sh && mv linux-exploit-suggester.sh les.sh
+    download "mimikittenz" git https://github.com/orlyjamie/mimikittenz
+    download "SILENTTRINITY" git https://github.com/byt3bl33d3r/SILENTTRINITY && cd SILENTTRINITY && python3 -m pip install -q --user pipenv >> $DIR/.install.log 2>>$DIR/.error.log && pipenv install >> $DIR/.install.log 2>>$DIR/.error.log && cd "$DIR/Post-Exploitation"
+    download "Empire" docker empireproject/empire
+    download "Sherlock" git https://github.com/rasta-mouse/Sherlock
+    download "Watson" git https://github.com/rasta-mouse/Watson
+    download "JAWS" git https://github.com/411Hall/JAWS
+    download "Seatbelt" git https://github.com/GhostPack/Seatbelt
+    download "impacket" git https://github.com/SecureAuthCorp/impacket && python3 -m pip install -q -r impacket/requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log
+    download "PowerSploit" git https://github.com/PowerShellMafia/PowerSploit
+    download "VirusTotalAPI" git https://github.com/doomedraven/VirusTotalApi && cd "$DIR/Post-Exploitation/VirusTotalApi" && pip install -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log  && python setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && cd "$DIR/Post-Exploitation"
+   
+    p "Simple Keylogger" a b
+    git clone -q https://github.com/GiacomoLaw/Keylogger "Simple Keylogger" >> $DIR/.install.log 2>>$DIR/.error.log
+fi
+
+
+
+## Reverse Engineering
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Reverse Engineering tools..."
+mkdir "$DIR/Reverse Engineering"
+cd "$DIR/Reverse Engineering"
+
+download "radare2" apt radare2
+download "ltrace" apt ltrace
+download "strace" apt strace
+download "objdump" apt binutils
+download "gdb" apt gdb
+
+if [ $MINIMAL == false ]; then
+    mkdir frida && cd frida
+    python3 -m pip -q install frida-tools >> $DIR/.install.log 2>>$DIR/.error.log
+    download "Frida" pip3 frida
+    npm install frida >> $DIR/.install.log 2>>$DIR/.error.log
+    cd "$DIR/Reverse Engineering"
+
+    if [ $GUI ]; then
+        download "bless" apt bless
+
+        valid "https://out7.hex-rays.com/files/idafree76_linux.run"
+        if [ $? == 1 ]; then
+            p "IDA"
+        else
+            p "IDA" e
+        fi
+
+        download "JD-GUI" wget https://github.com/java-decompiler/jd-gui/releases/download/v1.6.6/jd-gui-1.6.6.deb && mv jd-gui* jd-gui.deb && dpkg -i jd-gui.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm jd-gui.deb && mv /opt/jd-gui "$DIR/Reverse Engineering/" && cd jd-gui && touch jd-gui && echo "#!/bin/bash" > jd-gui && echo >> jd-gui && echo "java -jar $DIR/Reverse Engineering/jd-gui/jd-gui.jar" >> jd-gui && chmod +x jd-gui && ln -s "$DIR/Reverse Engineering/jd-gui/jd-gui" /usr/bin/jd-gui && cd "$DIR/Reverse Engineering"
+    fi
+fi
+
+
+
+## Cracking
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Cracking tools..."
+mkdir "$DIR/Cracking"
+cd "$DIR/Cracking"
+
+download "THC Hydra" apt hydra && apt-get -qq install -y hydra-gtk >> $DIR/.install.log 2>>$DIR/.error.log
+
+p "John The Ripper"
+git clone -q https://github.com/openwall/john.git -b bleeding-jumbo john
+cd john/src
+./configure >> $DIR/.install.log 2>>$DIR/.error.log && make -s clean && make -sj4 >> $DIR/.install.log 2>>$DIR/.error.log
+echo "alias john=$DIR/Cracking/john/run/john" >> /home/$SUDO_USER/.bash_aliases
+cd $DIR/Cracking
+
+download "hashcat" apt hashcat
+download "hash-identifier" git https://github.com/blackploit/hash-identifier
+download "hash-id" apt hashid
+
+if [ $MINIMAL == false ]; then
+    download "InstaInsane" git https://github.com/permikomnaskaltara/instainsane && cd instainsane && chmod +x *.sh && ./install.sh >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Cracking
+    download "Tweetshell" git https://github.com/Mehran/tweetshell && cd tweetshell && chmod +x *.sh && ./install.sh >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Cracking
+    download "Gemail-Hack" git https://github.com/Ha3MrX/Gemail-Hack
+    download "FB Brute" wget https://raw.githubusercontent.com/Sup3r-Us3r/scripts/master/fb-brute.pl
+    download "StegBrute" wget https://github.com/R4yGM/stegbrute/releases/download/0.1.1/stegbrute_0.1.1_amd64.deb && apt-get -qq install -y ./stegbrute_0.1.1_amd64.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm stegbrute_0.1.1_amd64.deb
+    download "StegSeek" wget https://github.com/RickdeJager/stegseek/releases/download/v0.6/stegseek_0.6-1.deb && apt-get -qq install -y ./stegseek_0.6-1.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm stegseek_0.6-1.deb && cd $DIR/Cracking
+    download "Wifi-Cracker" git https://github.com/fssecur3/wifi-cracker && cd wifi-cracker && chmod +x wifi-cracker.py && ln -s $DIR/Cracking/wifi-cracker/wifi-cracker.py /usr/bin/wifi-cracker && cd $DIR/Cracking
+    download "Crowbar" git https://github.com/galkan/crowbar && python3 -m pip install -q -r crowbar/requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log
+    download "ophcrack (CLI)" apt ophcrack-cli
+
+    if [ $GUI ]; then
+        download "ophcrack (GUI)" apt ophcrack
+    fi
+fi
+
+
+
+## Wifi Hacking
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Wifi Hacking tools..."
+mkdir "$DIR/Wifi Hacking"
+cd "$DIR/Wifi Hacking"
+
+p "airgeddon" a b
+git clone -q --depth 1 https://github.com/v1s1t0r1sh3r3/airgeddon.git
+
+download "aircrack-ng" apt "aircrack-ng"
+download "Wifite 2" git https://github.com/derv82/wifite2 && cd wifite2 && python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log
+download "reaver" apt reaver
+
+p "kismet" a b
+DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get -qq -y --force-yes -o "Dpkg::Options::=--force-confdef" -o "Dpkg::Options::=--force-confold" install kismet >> $DIR/.install.log 2>>$DIR/.error.log && apt-get -qq install -y kismet-plugins >> $DIR/.install.log 2>>$DIR/.error.log && apt-get -qq install --ignore-missing -y kismet-core kismet-capture-linux-bluetooth kismet-capture-linux-wifi kismet-capture-nrf-mousejack python-kismetcapturertl433 python-kismetcapturertladsb python-kismetcapturertlamr python-kismetcapturefreaklabszigbee kismet-logtools >> $DIR/.install.log 2>>$DIR/.error.log
+
+
+
+## Networking
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Networking tools..."
+mkdir $DIR/Networking
+cd $DIR/Networking
+
+download "netcat" apt netcat
+download "tcpdump" apt tcpdump
+download "dsniff" apt dsniff
+download "netdiscover" apt netdiscover
+
+p "tshark" a b
+DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get -qq -y --force-yes -o "Dpkg::Options::=--force-confdef" -o "Dpkg::Options::=--force-confold" install tshark >> $DIR/.install.log 2>>$DIR/.error.log
+
+if [ $GUI ]; then
+    download "Wireshark" apt wireshark
+fi
+
+if [ $MINIMAL == false ]; then
+    download "hping3" apt hping3
+    download "Scapy" git https://github.com/secdev/scapy
+    download "arping" apt arping
+    download "sslsplit" apt sslsplit
+    download "Wifi Jammer" git https://github.com/DanMcInerney/wifijammer && cd wifijammer && python2 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Networking
+    download "dns2proxy" git https://github.com/LeonardoNve/dns2proxy && pip install -q dnspython >> $DIR/.install.log 2>>$DIR/.error.log && pip install -q pcapy >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Networking/dns2proxy && chmod +x ./install.sh && ./install.sh >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Networking
+    download "Ettercap (CLI)" apt ettercap-common && apt-get -qq install -y ettercap-text-only >> $DIR/.install.log 2>>$DIR/.error.log
+  
+    p "macchanger" a b
+    DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical apt-get -qq -y -o "Dpkg::Options::=--force-confdef" -o "Dpkg::Options::=--force-confold" install macchanger >> $DIR/.install.log 2>>$DIR/.error.log
+
+    p "Speedtest CLI"
+    curl -s https://install.speedtest.net/app/cli/install.deb.sh | sudo bash >> $DIR/.install.log 2>>$DIR/.error.log
+    sudo apt-get install speedtest >> $DIR/.install.log 2>>$DIR/.error.log
+
+    if [ $GUI ]; then
+        download "Ettercap (GUI)" apt ettercap-graphical
+        download "Angry IP Scanner" wget https://github.com/angryip/ipscan/releases/download/3.7.6/ipscan_3.7.6_amd64.deb && mv ipscan_3.7.6_amd64.deb ipscan.deb && dpkg -i ipscan.deb >> $DIR/.install.log 2>>$DIR/.error.log; rm ipscan.deb
+    fi
+fi
+
+
+
+## OSINT
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling OSINT tools..."
+mkdir $DIR/OSINT
+cd $DIR/OSINT
+
+download "Recon-NG" git https://github.com/lanmaster53/recon-ng && cd recon-ng && python3 -m pip install -q -r REQUIREMENTS >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+download "Shodan" pip3 shodan
+download "Search That Hash" pip3 search-that-hash
+download "Scylla" git https://www.github.com/DoubleThreatSecurity/Scylla && cd Scylla && python3 -m pip install -q -r requirments.txt >> $DIR/.install.log 2>>$DIR/.error.log && sed '1i#!/usr/bin/env python3' scylla.py >scylla; rm scylla.py && mv scylla scylla.py && cd $DIR/OSINT
+download "TheHarvester" git https://github.com/laramies/theHarvester && cd theHarvester && python3 -m pip install -q testresources >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q -r requirements.txt --ignore-installed >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q pipenv >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q webscreenshot >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+
+if [ $GUI ]; then
+    download "Spider Foot" git https://github.com/smicallef/spiderfoot && cd spiderfoot && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+fi
+
+if [ $MINIMAL == false ]; then
+    download "Sherlock" git https://github.com/sherlock-project/sherlock && cd sherlock && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+    download "SocialScan" pip3 socialscan
+    download "ReconSpider" git https://github.com/bhavsec/reconspider && cd reconspider && python3 setup.py install >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+    download "UserRecon" git https://github.com/wishihab/userrecon
+    download "WhatsMyName" git https://github.com/WebBreacher/WhatsMyName && cd WhatsMyName && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/OSINT
+    download "Amass" snap amass
+    download "Sublist3r" git https://github.com/aboul3la/Sublist3r && cd Sublist3r && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log; cd $DIR/OSINT
+    download "Photon" git https://github.com/s0md3v/Photon && cd Photon && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log; cd $DIR/OSINT
+fi
+
+
+
+## Forensics
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Forensics tools..."
+mkdir $DIR/Forensics
+cd $DIR/Forensics
+
+download "binwalk" apt binwalk
+download "Volatility 3" git https://github.com/volatilityfoundation/volatility3
+download "Foremost" apt foremost
+download "steghide" apt steghide
+download "exiftool" apt libimage-exiftool-perl
+download "hexdump" apt bsdmainutils
+
+if [ $MINIMAL == false ]; then
+    download "Abeebus" git https://github.com/13Cubed/Abeebus
+    download "zsteg" gem
+    download "net-creds" git https://github.com/DanMcInerney/net-creds && cd net-creds && python3 -m pip install -q -r requirements.txt >> $DIR/.install.log 2>>$DIR/.error.log && python3 -m pip install -q scapy >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Forensics
+    download "The Sleuth Kit" apt sleuthkit
+
+    if [ $GUI ]; then
+        download "AudioStego" git https://github.com/danielcardeenas/AudioStego && cd AudioStego && mkdir build && cd build && cmake .. >> $DIR/.install.log 2>>$DIR/.error.log && make >> $DIR/.install.log 2>>$DIR/.error.log && ln -s $DIR/Forensics/AudioStego/build/hideme /usr/bin/hideme && cd $DIR/Forensics
+        download "Autopsy" apt autopsy
+    fi
+fi
+
+
+
+## Security
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Security tools..."
+mkdir $DIR/Security
+cd $DIR/Security
+
+download "ProxyChains4" apt proxychains4
+download "OpenVPN" apt openvpn
+download "UFW" apt ufw && apt-get -qq install gufw -y >> $DIR/.install.log 2>>$DIR/.error.log
+download "Anonsurf" git https://github.com/Und3rf10w/kali-anonsurf && cd kali-anonsurf && echo | ./installer.sh >> $DIR/.install.log 2>>$DIR/.error.log && cd $DIR/Security
+
+if [ $MINIMAL == false ]; then
+    download "mat2" apt mat2
+    download "Fake-SMS" git https://github.com/Narasimha1997/fake-sms
+
+    if [ $GUI ]; then
+        echo -e "\n" | add-apt-repository ppa:phoerious/keepassxc >> $DIR/.install.log 2>>$DIR/.error.log
+        apt-get -qq update >> $DIR/.install.log 2>>$DIR/.error.log
+        download "KeePassXC" apt keepassxc
+    fi
+fi
+
+
+
+## WORDLISTS
+if [ $QUIET == false ]; then
+    echo ""
+fi
+echo -e "$CYAN\rInstalling Wordlists..."
+[ ! -d $WORDLISTS ] && mkdir $WORDLISTS
+ln -s $WORDLISTS $DIR
+mv $DIR/wordlists $DIR/Wordlists
+cd $WORDLISTS
+
+download "rockyou" wget https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt
+download "SecLists" git https://github.com/danielmiessler/SecLists
+download "Payloads All The Things" git https://github.com/swisskyrepo/PayloadsAllTheThings
+
+if [ $MINIMAL == false ]; then
+    download "crackstation-human-only" wget https://crackstation.net/files/crackstation-human-only.txt.gz && gunzip -d $WORDLISTS/crackstation-human-only.txt.gz
+    download "fuzzdb" git https://github.com/fuzzdb-project/fuzzdb
+fi
+
+if [ $QUIET == false ]; then
+    echo ""
+fi
+
+# Create symlinks for all the wordlists
+echo -e "$CYAN\rSetting up wordlists..."
+mv SecLists/Web-Shells $DIR/Misc
+ln -s /usr/share/dirb/wordlists dirb
+ln -s /usr/share/nmap/nselib/data nmap
+if [ $MINIMAL == false ]; then
+    ln -s $DIR/OSINT/theHarvester/wordlists theHarvester
+    mkdir dirbuster
+    mv $DIR/Enumeration/Fuzzers/dirbuster/*.txt dirbuster
+    ln -s $DIR/Exploitation/sparta/wordlists $DIR/Wordlists/sparta
+fi
+
+
+
+# NEEDS INPUT FROM USER
+echo
+echo -e -n "$CYAN\rThe following installations require user input [Press Enter to continue...]$RESET"; read
+
+if [ $GUI ]; then
+    if [ $MINIMAL == false ]; then
+        #IDA
+        cd "$DIR/Reverse Engineering"
+        wget -q https://out7.hex-rays.com/files/idafree76_linux.run -O ida.run
+        IDA="`find / 2>/dev/null | grep idafree | head -n 1`"
+        ln -s $IDA/ida64 /usr/bin/ida
+        chmod +x ida.run
+        ./ida.run
+        rm ida.run
+
+        #venom
+        cd $DIR/Exploitation
+        git clone -q https://github.com/r00t-3xp10it/venom.git
+        cd venom
+        find ./ -name "*.sh" -exec chmod +x {} \;
+        find ./ -name "*.py" -exec chmod +x {} \;
+        cd aux
+        ./setup.sh >> $DIR/.install.log 2>>$DIR/.error.log
+        cd $DIR/Exploitation
+    fi
+fi
+
+## Finish the progress bar
+#if [ $QUIET == false ]; then
+#    destroy_scroll_area
+#fi
+
+# Checking for corrupted installations and fixing them
+echo -e "$CYAN\rFinishing touches...$RESET"
+apt-get -qq update --fix-missing >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get -qq -y upgrade >> $DIR/.install.log 2>>$DIR/.error.log
+apt-get --fix-broken -qq install >> $DIR/.install.log 2>>$DIR/.error.log
+source /home/$SUDO_USER/.bash_aliases
+
+# Checking for errors
+# grep -w --ignore-case 'not found\|error\|unable\|invalid\|no such\|cannot' $DIR/.install.log | grep -vi inflating | grep -vi creating | sort | uniq -c | sort -r >> $DIR/.error.log
+if [ -s "$DIR/.error.log" ]; then
+    echo
+    echo -e "$YELLOW\r[*] WARNING! There's been detected some errors during the installation. Check the '.error.log' file.$RESET"
+fi
+
+
+
+# Final Message
+echo ""
+echo -e "$GREEN\rInstallation Completed! Please reboot your machine.$RESET"
+echo ""
+
+# Exit from root
+exit
