@@ -1,4 +1,4 @@
-# Infosec Toolkit
+# THE BOX
 
 ## SUMMARY
 
@@ -8,7 +8,7 @@ A simple script that installs useful Linux tools for penetration testing and sec
 
 This script was written in a way that you could install a brand new OS and, by running it, you would be ready to start all your penetration testing without the hassle of installing each tool one by one.
 
-We have a couple of options: `-m` or `--minimal` only installs the most common tools for each category (nmap, wireshark, dirb, metasploit, etc.) and `-ng` or `--no-gui` only installs tools that don't require a GUI, for an even lighter pentest environment. Without any flags it will install 147 total tools from security utilities such as UFW, Anonsurf, KeePassXC, to (post-)exploitation frameworks like Metasploit, Empire and PowerSploit.
+We have a couple of options: `-m` or `--minimal` only installs the most common tools for each category (nmap, wireshark, dirb, metasploit, etc.) and `-ng` or `--no-gui` only installs tools that don't require a GUI, for an even lighter pentest environment. Without any flags it will install 177 total tools from security utilities such as UFW, Anonsurf, KeePassXC, to (post-)exploitation frameworks like Metasploit, Empire and PowerSploit.
 
 This program stores the downloaded tools in multiple folders, regarding the type of utility being installed:
 
