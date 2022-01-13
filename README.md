@@ -2,7 +2,7 @@
 
 ## SUMMARY
 
-A simple script that installs useful Linux tools for penetration testing and security audits.
+A simple script that installs 174 useful Linux tools for penetration testing and security audits.
 
 ## DESCRIPTION
 

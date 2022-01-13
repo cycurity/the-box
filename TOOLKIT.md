@@ -33,7 +33,7 @@
 - Vim
 - Xsel
 
-## Installed Tools (177)
+## Installed Tools (174)
 
 - Abeebus
 - aircrack-ng
@@ -69,14 +69,13 @@
 - Docker
 - Droopescan
 - dsniff
+- Dumper
 - Empire
 - enum4linux
 - Ettercap (CLI)
 - Ettercap (GUI)
 - exiftool
 - Exploitdb
-- Fake-SMS
-- FB Brute
 - ffmpeg
 - ffuf
 - Fierce
@@ -86,7 +85,6 @@
 - Frida
 - fuzzdb
 - gdb
-- Gemail-Hack
 - GoBuster
 - GoClone
 - Golismero
@@ -98,7 +96,6 @@
 - hexdump
 - hping3
 - impacket
-- InstaInsane
 - JAWS
 - JD-GUI
 - Joomscan
@@ -140,6 +137,7 @@
 - Photon
 - Postenum
 - PowerSploit
+- PRET
 - ProxyChains4
 - radare2
 - reaver
@@ -186,7 +184,6 @@
 - The Social-Engineer Toolkit (SET)
 - TheHarvester
 - tshark
-- Tweetshell
 - UFW
 - Unicorn
 - UserRecon
@@ -211,5 +208,4 @@
 - Xerxes (C)
 - Xerxes (C++)
 - xfreerdp
-- youtube_dl
 - Zphisher
