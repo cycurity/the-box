@@ -1,5 +1,7 @@
 # THE BOX
 
+v0.2
+
 ## SUMMARY
 
 A simple script that installs 174 useful Linux tools for penetration testing and security audits.
