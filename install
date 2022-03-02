@@ -470,7 +470,6 @@ if [ $MINIMAL == false ]; then
     download "Crunch" apt crunch
     download "Cewl" apt cewl
     download "GoClone" git https://github.com/imthaghost/goclone; cd goclone/cmd/goclone; go install >> $DIR/.install.log 2>>$DIR/.error.log; cd $DIR/Misc
-    download "Firefox Decrypt" git https://github.com/unode/firefox_decrypt
     download "MDB Tools" apt mdbtools
     download "BPython" pip3 bpython
 fi
@@ -626,6 +625,7 @@ download "LinEnum" wget https://raw.githubusercontent.com/rebootuser/LinEnum/mas
 download "Linux Smart Enumeration" wget https://raw.githubusercontent.com/diego-treitos/linux-smart-enumeration/master/lse.sh
        
 if [ $MINIMAL == false ]; then
+    download "Firefox Decrypt" git https://github.com/unode/firefox_decrypt
     download "Merlin" wget https://github.com/Ne0nd0g/merlin/releases/download/v1.0.0/merlinServer-Linux-x64.7z && mkdir Merlin && mv merlinServer* Merlin && cd Merlin && 7z x -p"merlin" merlinServer-Linux-x64.7z >> $DIR/.install.log 2>>$DIR/.error.log; rm merlinServer-Linux-x64.7z && cd "$DIR/Post-Exploitation"
     download "SSH-Backdoor" git https://github.com/NinjaJc01/ssh-backdoor
     download "Weevely" apt weevely
