@@ -52,7 +52,7 @@ $ ./install -h
 
 Development team:
 
-- [fssecur3](https://github.com/fssecur3 "fssecur3's Github Profile")
+- [nu11pointer](https://github.com/nu11pointer "nu11pointer's Github Profile")
 - [intMa1n](https://github.com/Bernardo15Sousa "intMa1n's Github Profile")
 - [Oz0nO](https://github.com/Oz0nO "Oz0nO's Github Profile")
 
